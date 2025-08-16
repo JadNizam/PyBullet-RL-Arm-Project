@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+logs/
+runs/
+checkpoints/
+videos/
+*.mp4
+.idea/
+.vscode/

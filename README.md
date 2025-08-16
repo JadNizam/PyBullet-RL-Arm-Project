@@ -15,18 +15,18 @@ Quick Start (Windows PowerShell)
 3) Sanity check the simulator (GUI opens)
    python -m scripts.make_env_demo --render
 
-Train
-# Reach
+# Train
+**Reach**
 python -m src.agents.train_sb3 --env reach --cfg src/configs/reach.yaml --total-steps 300000 --seed 1 --logdir runs/reach/seed_1
 
-# Pick-and-Place
+**Pick-and-Place**
 python -m src.agents.train_sb3 --env pickplace --cfg src/configs/pickplace.yaml --total-steps 1500000 --seed 1 --logdir runs/pickplace/seed_1_overbin
 
-Evaluate (watch in GUI)
-# Reach
+# Evaluate (watch in GUI)
+**Reach**
 python -m src.agents.evaluate --env reach --model checkpoints/reach/best_model.zip --episodes 5 --render --fps 5
 
-# Pick-and-Place
+**Pick-and-Place**
 python -m src.agents.evaluate --env pickplace --model checkpoints/pickplace/best_model.zip --episodes 5 --render --fps 15
 
 

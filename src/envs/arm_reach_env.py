@@ -4,8 +4,8 @@ from gymnasium import spaces
 import numpy as np
 import pybullet as p
 import pybullet_data
-
 from dataclasses import dataclass
+
 from src.sim.world import connect, reset_world, set_gravity, load_plane
 from src.sim.robots import load_arm, reset_neutral, get_state, apply_delta_ee
 from src.sim.objects import create_target_sphere
@@ -30,7 +30,7 @@ class ArmReachEnv(gym.Env):
         set_gravity(self.client)
         self.plane_id = load_plane(self.client)
 
-        self.arm = load_arm(self.client)
+        self.arm = load_arm(self.client)  # KUKA (base collisions disabled in robots.py)
         # obs: q, dq, ee, target, delta
         obs_dim = self.arm.obs_dim + 3 + 3
         self.observation_space = spaces.Box(low=-5.0, high=5.0, shape=(obs_dim,), dtype=np.float32)
@@ -46,8 +46,8 @@ class ArmReachEnv(gym.Env):
 
     def _sample_target(self) -> np.ndarray:
         return np.array([0.6 + 0.05*self.rng.standard_normal(),
-                         0.0 + 0.20*self.rng.uniform(-1,1),
-                         0.15 + 0.25*self.rng.uniform(0,1)], dtype=np.float32)
+                         0.0 + 0.20*self.rng.uniform(-1, 1),
+                         0.15 + 0.25*self.rng.uniform(0, 1)], dtype=np.float32)
 
     def reset(self, *, seed: int | None = None, options=None):
         if seed is not None:
@@ -71,23 +71,33 @@ class ArmReachEnv(gym.Env):
 
     def step(self, action: np.ndarray):
         action = np.clip(action, -1, 1) * self.cfg.action_scale
-        apply_delta_ee(self.arm, action, max_step=0.05)
+
+        # KUKA-safe workspace clamp to avoid base/table
+        apply_delta_ee(
+            self.arm,
+            action,
+            max_step=0.04,
+            workspace_lo=[0.70, -0.25, 0.16],
+            workspace_hi=[0.95,  0.25, 0.60],
+        )
+
         for _ in range(4):
             p.stepSimulation(physicsClientId=self.client)
+
         q, dq, ee = get_state(self.arm)
         dist = float(np.linalg.norm(self.target - ee))
         reward = -dist - 0.001 * float(np.square(action).sum())
         terminated = dist < self.cfg.dist_threshold
         self.step_count += 1
         truncated = self.step_count >= self.cfg.max_steps
+
         obs = self._get_obs()
         info = {"dist": dist}
         if terminated:
             reward += 1.0
         return obs, reward, terminated, truncated, info
 
-    def render(self):
-        # GUI handled by connect(render=True)
+    def render(self):  # GUI handled by connect(render=True)
         pass
 
     def close(self):

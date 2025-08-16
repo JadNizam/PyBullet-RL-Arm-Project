@@ -1,21 +1,12 @@
 env:
-  max_steps: 300
-  dist_threshold: 0.04
-  action_scale: 0.02
-  render: false
-  seed: 42
-train:
-  algo: ppo
-  total_timesteps: 1000000
-  n_envs: 1
-  seed: 42
-ppo:
-  learning_rate: 3e-4
-  gamma: 0.99
-  gae_lambda: 0.95
-  clip_range: 0.2
-  n_steps: 2048
-  batch_size: 64
-  ent_coef: 0.0
-  vf_coef: 0.5
-  max_grad_norm: 0.5
+  max_steps: 500
+  grasp_radius: 0.10
+  action_scale: 0.03
+  inner_xyh: [0.26, 0.26, 0.16]
+  wall_thickness: 0.012
+  auto_grasp: true
+  auto_release: true
+  release_xy_margin: 0.10
+  release_z_thresh: 0.12
+  lift_height: 0.14
+  over_bin_height: 0.18

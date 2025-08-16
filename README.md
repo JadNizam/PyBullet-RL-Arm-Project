@@ -1,6 +1,8 @@
-RL PyBullet Arm (Reach Task)
+PyBullet RL Arm (Reach + Pick-and-Place)
 
-A minimal end-to-end reinforcement learning project using PyBullet + Gymnasium + Stable-Baselines3 (PPO) to train a 6-DoF robotic arm to reach a 3D target.
+Minimal RL project using PyBullet + Gymnasium + Stable-Baselines3 (PPO) to train a 6-DoF arm for:
+1) Reach: move the end-effector to a random 3D target.
+2) PickPlace: grasp a ball and place it in a randomly moving goal box.
 
 Quick Start (Windows PowerShell)
 1) Create and activate a virtual environment
@@ -10,25 +12,44 @@ Quick Start (Windows PowerShell)
 2) Install dependencies
    pip install -r requirements.txt
 
-3) Sanity-check the simulator (GUI opens)
+3) Sanity check the simulator (GUI opens)
    python -m scripts.make_env_demo --render
 
-Train PPO
-Run from the project root (venv active). This trains for 300k env steps and saves a model.
+Train
+# Reach
+python -m src.agents.train_sb3 --env reach --cfg src/configs/reach.yaml --total-steps 300000 --seed 1 --logdir runs/reach/seed_1
 
-   python -m src.agents.train_sb3 --env reach --cfg src/configs/reach.yaml --total-steps 300000 --seed 1 --logdir runs/reach/seed_1
+# Pick-and-Place
+python -m src.agents.train_sb3 --env pickplace --cfg src/configs/pickplace.yaml --total-steps 1500000 --seed 1 --logdir runs/pickplace/seed_1_overbin
 
-Evaluate and watch the trained agent (GUI)
-Loads the saved model and runs a few episodes in the PyBullet GUI.
+Evaluate (watch in GUI)
+# Reach
+python -m src.agents.evaluate --env reach --model checkpoints/reach/best_model.zip --episodes 5 --render --fps 5
 
-   python -m src.agents.evaluate --model checkpoints/reach/best_model.zip --episodes 5 --render --fps 5
+# Pick-and-Place
+python -m src.agents.evaluate --env pickplace --model checkpoints/pickplace/best_model.zip --episodes 5 --render --fps 15
+
+
 
 Optional: record a video (MP4)
 Install once:
-   pip install imageio[ffmpeg]
+   pip install "imageio[ffmpeg]"
+Example:
+   python -m src.agents.evaluate --env pickplace --model checkpoints/pickplace/best_model.zip --episodes 5 --render --fps 10 --video videos/pickplace_demo.mp4
 
-Then run:
-   python -m src.agents.evaluate --model checkpoints/reach/best_model.zip --episodes 5 --render --fps 10 --video videos/reach_demo.mp4
+Environments
+Reach
+- Obs: joint pos/vel, end-effector pos, target pos, delta
+- Action: 3D delta in EE space (IK step)
+- Reward: -||ee - target|| - 0.001*||action||^2, +1.0 on success (within threshold)
+
+Pick-and-Place
+- Obs: joint pos/vel, end-effector pos, ball pos, moving goal pos, grasped flag
+- Action: [dx, dy, dz, grip] with IK step; grip>0 closes (attach via fixed constraint), grip<0 opens
+- Reward:
+  - Not grasped: -||ee - ball|| - 0.001*||action||^2 (+0.5 on grasp event)
+  - Grasped: -2.0*||ball - goal|| - 0.001*||action||^2 (+1.0 on successful place)
+- Success: ball near goal (< threshold) and released
 
 Project Layout
   rl_pybullet_arm/
@@ -60,16 +81,11 @@ Project Layout
     tests/
       test_env.py
 
-What the agent does
-- Each episode spawns a target sphere in reachable space.
-- The agent moves the end effector toward the target using small IK-based 3D deltas.
-- Reward = negative distance to target + small action penalty; success bonus when within threshold.
-
-Troubleshooting
+Tips & Troubleshooting
+- Run module commands from the project root (python -m ...).
 - If Activate.ps1 is blocked:
     Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
     .\.venv\Scripts\Activate.ps1
-- If you see ModuleNotFoundError: run commands as modules from the project root (python -m ...).
-- GUI too fast: lower --fps (e.g., --fps 5).
-- best_model.zip appears after training finishes (or via periodic eval if you add an EvalCallback).
-- CPU is fine for this project; GPU Torch build is optional.
+- GUI too fast? lower --fps (e.g., --fps 5). To slow more, step fewer times per second.
+- best_model.zip appears after training finishes (or via periodic eval if you add EvalCallback).
+- CPU is fine for this project; a GPU PyTorch build is optional.

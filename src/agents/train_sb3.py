@@ -2,30 +2,29 @@ import argparse, yaml, os
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 
-def make_env_reach(render: bool, seed: int, cfg_path: str): # creates environment for reaching task
-    from src.envs.arm_reach_env import ArmReachEnv, ReachCfg  
-    with open(cfg_path, "r") as f:
-        y = yaml.safe_load(f)
-    env = ArmReachEnv(ReachCfg(
-        max_steps=y["env"]["max_steps"],
-        dist_threshold=y["env"]["dist_threshold"],
-        action_scale=y["env"]["action_scale"],
-        render=render,
-        seed=seed
-    ))
-    return Monitor(env)
-
-def make_env_pickplace(render: bool, seed: int, cfg_path: str):
-    from src.envs.arm_pickplace_env import ArmPickPlaceEnv, PickPlaceCfg  # lazy import
-    import yaml
+def make_env_reach(render: bool, seed: int, cfg_path: str):
+    from src.envs.arm_reach_env import ArmReachEnv, ReachCfg
     with open(cfg_path, "r") as f:
         y = yaml.safe_load(f)
     e = y["env"]
+    cfg = ReachCfg(
+        max_steps=e["max_steps"],
+        dist_threshold=e["dist_threshold"],
+        action_scale=e["action_scale"],
+        render=render,
+        seed=seed,
+    )
+    return Monitor(ArmReachEnv(cfg))
 
-    env_cfg = PickPlaceCfg(
-        max_steps=int(e.get("max_steps", 500)),
-        grasp_radius=float(e.get("grasp_radius", 0.10)),
-        action_scale=float(e.get("action_scale", 0.03)),
+def make_env_pickplace(render: bool, seed: int, cfg_path: str):
+    from src.envs.arm_pickplace_env import ArmPickPlaceEnv, PickPlaceCfg
+    with open(cfg_path, "r") as f:
+        y = yaml.safe_load(f)
+    e = y["env"]
+    cfg = PickPlaceCfg(
+        max_steps=e["max_steps"],
+        grasp_radius=e["grasp_radius"],
+        action_scale=e["action_scale"],
         render=render,
         seed=seed,
         inner_xyh=tuple(e.get("inner_xyh", [0.26, 0.26, 0.16])),
@@ -34,15 +33,37 @@ def make_env_pickplace(render: bool, seed: int, cfg_path: str):
         auto_release=bool(e.get("auto_release", True)),
         release_xy_margin=float(e.get("release_xy_margin", 0.10)),
         release_z_thresh=float(e.get("release_z_thresh", 0.12)),
-        lift_height=float(e.get("lift_height", 0.14)),
         over_bin_height=float(e.get("over_bin_height", 0.18)),
     )
-    from stable_baselines3.common.monitor import Monitor
-    return Monitor(ArmPickPlaceEnv(env_cfg))
+    return Monitor(ArmPickPlaceEnv(cfg))
 
-def main(): # main function to parse arguments and run training
+def make_env_sort(render: bool, seed: int, cfg_path: str):
+    from src.envs.arm_sort_env import ArmSortEnv, SortCfg
+    with open(cfg_path, "r") as f:
+        y = yaml.safe_load(f)
+    e = y["env"]
+    cfg = SortCfg(
+        max_steps=e.get("max_steps", 500),
+        action_scale=e.get("action_scale", 0.03),
+        grasp_radius=e.get("grasp_radius", 0.08),
+        render=render,
+        seed=seed,
+        num_balls=e.get("num_balls", 4),
+        ball_radius=e.get("ball_radius", 0.03),
+        ball_mass=e.get("ball_mass", 0.05),
+        inner_xyh=tuple(e.get("inner_xyh", [0.26, 0.26, 0.16])),
+        wall_thickness=float(e.get("wall_thickness", 0.012)),
+        auto_grasp=bool(e.get("auto_grasp", True)),
+        auto_release=bool(e.get("auto_release", True)),
+        release_xy_margin=float(e.get("release_xy_margin", 0.10)),
+        release_z_thresh=float(e.get("release_z_thresh", 0.12)),
+        over_bin_height=float(e.get("over_bin_height", 0.18)),
+    )
+    return Monitor(ArmSortEnv(cfg))
+
+def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--env", default="reach", choices=["reach", "pickplace"])
+    ap.add_argument("--env", default="reach", choices=["reach", "pickplace", "sort"])
     ap.add_argument("--cfg", default="src/configs/reach.yaml")
     ap.add_argument("--total-steps", type=int, default=500_000)
     ap.add_argument("--seed", type=int, default=42)
@@ -55,8 +76,10 @@ def main(): # main function to parse arguments and run training
 
     if args.env == "reach":
         env = make_env_reach(args.render, args.seed, args.cfg)
-    else:
+    elif args.env == "pickplace":
         env = make_env_pickplace(args.render, args.seed, args.cfg)
+    else:
+        env = make_env_sort(args.render, args.seed, args.cfg)
 
     model = PPO("MlpPolicy", env, verbose=1, seed=args.seed)
     model.learn(total_timesteps=args.total_steps)

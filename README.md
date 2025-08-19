@@ -20,7 +20,10 @@ Quick Start (Windows PowerShell)
 python -m src.agents.train_sb3 --env reach --cfg src/configs/reach.yaml --total-steps 300000 --seed 1 --logdir runs/reach/seed_1
 
 **Pick-and-Place**
-python -m src.agents.train_sb3 --env pickplace --cfg src/configs/pickplace.yaml --total-steps 1500000 --seed 1 --logdir runs/pickplace/seed_1_overbin
+python -m src.agents.train_sb3 --env pickplace --cfg src/configs/pickplace.yaml --total-steps 1000000 --seed 1 --logdir runs/pickplace/seed_1_overbin
+
+**Sort**
+python -m src.agents.train_sb3 --env sort --cfg src/configs/sort.yaml --total-steps 1200000 --seed 1 --logdir runs/sort/seed_1
 
 # Evaluate (watch in GUI)
 **Reach**
@@ -29,6 +32,8 @@ python -m src.agents.evaluate --env reach --model checkpoints/reach/best_model.z
 **Pick-and-Place**
 python -m src.agents.evaluate --env pickplace --model checkpoints/pickplace/best_model.zip --episodes 5 --render --fps 15
 
+**Sort**
+python -m src.agents.evaluate --env sort --model checkpoints/sort/best_model.zip --episodes 5 --render --fps 10
 
 
 Optional: record a video (MP4)

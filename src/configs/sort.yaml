@@ -1,0 +1,17 @@
+env:
+  max_steps: 600
+  action_scale: 0.03
+  grasp_radius: 0.08
+
+  num_balls: 4
+  ball_radius: 0.03
+  ball_mass: 0.05
+
+  inner_xyh: [0.26, 0.26, 0.16]
+  wall_thickness: 0.012
+
+  auto_grasp: true
+  auto_release: true
+  release_xy_margin: 0.10
+  release_z_thresh: 0.12
+  over_bin_height: 0.18

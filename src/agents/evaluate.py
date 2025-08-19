@@ -1,74 +1,79 @@
+# src/agents/evaluate.py
 import argparse, os, time
 import numpy as np
+import pybullet as p
 from stable_baselines3 import PPO
+
 from src.envs.arm_reach_env import ArmReachEnv, ReachCfg
 from src.envs.arm_pickplace_env import ArmPickPlaceEnv, PickPlaceCfg
-import pybullet as p
+from src.envs.arm_sort_env import ArmSortEnv, SortCfg
 
-# ----- make_env: pick one of our envs -----
+
 def make_env(env_name: str, render: bool):
     if env_name == "reach":
         return ArmReachEnv(ReachCfg(render=render))
     elif env_name == "pickplace":
         return ArmPickPlaceEnv(PickPlaceCfg(render=render))
+    elif env_name == "sort":
+        return ArmSortEnv(SortCfg(render=render))
     else:
-        raise ValueError(f"Unknown env: {env_name}")
+        raise ValueError("Unknown env")
 
-# ----- camera helpers -----
-def _build_cameras(target=(0.72, 0.0, 0.12)):
-    """
-    Define a few nice views around the workspace.
-    Returns list of (viewMatrix, projMatrix) tuples.
-    """
-    W, H = 640, 360  # per view; final width is W * num_views
-    fov, aspect, near, far = 60.0, W / H, 0.01, 3.0
 
-    # yaw, pitch, dist around the target
+# camera helpers
+def _build_cameras(target=(0.72, 0.0, 0.12), w=640, h=360):
+    # 3 nice views around the workspace
+    fov, aspect, near, far = 60.0, w / h, 0.01, 3.0
     specs = [
-        # left-iso
-        dict(yaw=110, pitch=-30, dist=1.2),
-        # front
-        dict(yaw=90, pitch=-35, dist=1.25),
-        # right-iso
-        dict(yaw=70, pitch=-30, dist=1.2),
+        dict(yaw=110, pitch=-30, dist=1.2),   # left-iso
+        dict(yaw= 90, pitch=-35, dist=1.25),  # front
+        dict(yaw= 70, pitch=-30, dist=1.2),   # right-iso
     ]
-
     cams = []
     for s in specs:
-        v = p.computeViewMatrixFromYawPitchRoll(
+        view = p.computeViewMatrixFromYawPitchRoll(
             cameraTargetPosition=target, distance=s["dist"],
             yaw=s["yaw"], pitch=s["pitch"], roll=0.0, upAxisIndex=2
         )
         proj = p.computeProjectionMatrixFOV(
             fov=fov, aspect=aspect, nearVal=near, farVal=far
         )
-        cams.append((v, proj))
-    return cams, (W, H)
+        cams.append((view, proj))
+    return cams
 
-def _capture_views(client_id: int, views, size, renderer):
-    """
-    Grab frames from multiple camera views and stack them horizontally.
-    Returns uint8 RGB array of shape (H, W*num_views, 3).
-    """
-    W, H = size
-    rgb_rows = []
+
+def _choose_renderer(render: bool):
+    # use hardware GL if GUI is up; otherwise Tiny works headless
+    if render:
+        try:
+            return p.ER_BULLET_HARDWARE_OPENGL
+        except Exception:
+            return p.ER_TINY_RENDERER
+    return p.ER_TINY_RENDERER
+
+
+def _capture_views(client_id: int, views, w: int, h: int, renderer):
+    frames = []
     for (view, proj) in views:
-        w, h, rgba, _, _ = p.getCameraImage(
-            W, H, viewMatrix=view, projectionMatrix=proj,
+        _, _, rgba, _, _ = p.getCameraImage(
+            w, h, viewMatrix=view, projectionMatrix=proj,
             renderer=renderer, physicsClientId=client_id
         )
-        # Convert to (H, W, 3) uint8
-        arr = np.asarray(rgba, dtype=np.uint8)
+        arr = np.asarray(rgba)
         if arr.ndim == 1:
-            frame = arr.reshape(h, w, 4)[..., :3]
-        elif arr.shape[-1] == 4:
-            frame = arr[..., :3]
+            img = arr.reshape(h, w, 4)[..., :3]
         else:
-            frame = arr.reshape(h, w, 4)[..., :3]
-        rgb_rows.append(frame)
-    return np.concatenate(rgb_rows, axis=1)
+            # pybullet sometimes returns (H,W,4) already
+            if arr.shape[-1] == 4:
+                img = arr[..., :3]
+            else:
+                img = arr.reshape(h, w, 4)[..., :3]
+        img = img.astype(np.uint8, copy=False)
+        frames.append(img)
+    # stack side-by-side
+    return np.concatenate(frames, axis=1)
 
-# ----- evaluation loop -----
+
 def run_episodes(
     env_name: str,
     model_path: str,
@@ -76,7 +81,7 @@ def run_episodes(
     render: bool = True,
     fps: int = 60,
     video_path: str | None = None,
-    views: int = 3,           # 1 or 3
+    views: int = 3,      # 1 or 3
     width: int = 640,
     height: int = 360,
 ):
@@ -85,34 +90,26 @@ def run_episodes(
     returns = []
 
     writer = None
-    imgio = None
     if video_path:
         import imageio.v2 as imageio
-        imgio = imageio
         os.makedirs(os.path.dirname(video_path), exist_ok=True)
         writer = imageio.get_writer(video_path, fps=fps)
 
-    # Cameras (only used if we’re writing video)
-    renderer = p.ER_TINY_RENDERER  # works with/without GUI
-    if writer is not None:
-        all_views, default_size = _build_cameras(target=(0.72, 0.0, 0.12))
-        if views == 1:
-            all_views = [all_views[1:2]]  # just the center/front view
-        else:
-            # keep all 3
-            all_views = [all_views[0], all_views[1], all_views[2]]
-        size = (width, height)
+    renderer = _choose_renderer(render)
+    all_views = _build_cameras(w=width, h=height)
+    if views == 1:
+        views_to_use = [all_views[1]]  # center/front only
     else:
-        all_views, size = [], (width, height)
+        views_to_use = all_views       # all 3
 
     for ep in range(episodes):
-        obs, info = env.reset()
+        obs, _ = env.reset()
         done = False
         trunc = False
         ep_ret = 0.0
 
-        # If GUI is on, put a nice default camera in the debug viewer too
         if render:
+            # nice default GUI camera
             p.resetDebugVisualizerCamera(
                 cameraDistance=1.25, cameraYaw=90, cameraPitch=-35,
                 cameraTargetPosition=[0.72, 0.0, 0.12],
@@ -128,16 +125,7 @@ def run_episodes(
                 time.sleep(1.0 / fps)
 
             if writer is not None:
-                # capture multi-view (3-wide) or single view
-                if views == 1:
-                    # build a single center view quickly (reuse the function)
-                    # Using the same views list but only the middle one
-                    viewset, _ = _build_cameras(target=(0.72, 0.0, 0.12))
-                    view = [viewset[1]]  # center/front
-                    frame = _capture_views(env.client, view, size, renderer)
-                else:
-                    # three angles side-by-side
-                    frame = _capture_views(env.client, all_views, size, renderer)
+                frame = _capture_views(env.client, views_to_use, width, height, renderer)
                 writer.append_data(frame)
 
         print(f"Episode {ep+1}: return = {ep_ret:.3f}")
@@ -151,18 +139,18 @@ def run_episodes(
     mean_ret = float(np.mean(returns)) if returns else 0.0
     print(f"Mean return over {episodes} episodes: {mean_ret:.3f}")
 
-# ----- CLI entrypoint -----
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--env", default="reach", choices=["reach", "pickplace"])
+    ap.add_argument("--env", default="reach", choices=["reach", "pickplace", "sort"])
     ap.add_argument("--model", default="checkpoints/reach/best_model.zip")
     ap.add_argument("--episodes", type=int, default=5)
     ap.add_argument("--render", action="store_true")
     ap.add_argument("--fps", type=int, default=60)
     ap.add_argument("--video", default="", help="Path to save mp4 (e.g., videos/demo.mp4)")
-    ap.add_argument("--views", type=int, default=3, choices=[1, 3], help="Number of camera angles in the video.")
-    ap.add_argument("--width", type=int, default=640, help="Per-view video width")
-    ap.add_argument("--height", type=int, default=360, help="Per-view video height")
+    ap.add_argument("--views", type=int, default=3, choices=[1, 3])
+    ap.add_argument("--width", type=int, default=640)
+    ap.add_argument("--height", type=int, default=360)
     args = ap.parse_args()
 
     model_path = args.model or f"checkpoints/{args.env}/best_model.zip"
@@ -179,6 +167,7 @@ def main():
         width=args.width,
         height=args.height,
     )
+
 
 if __name__ == "__main__":
     main()
